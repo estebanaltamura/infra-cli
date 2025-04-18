@@ -65,29 +65,47 @@ def choose_multiple_from_list(options, title="Select one or more services"):
     while True:
         raw = input("👉 Enter numbers or names (comma-separated): ").strip()
         parts = [p.strip() for p in raw.split(",") if p.strip()]
-        selected = []
 
+        selected = []
+        seen = set()
         all_valid = True
+
         for p in parts:
+            if p in seen:
+                print(f"❌ Duplicate entry detected: {p}")
+                all_valid = False
+                break
+            seen.add(p)
+
             if p.isdigit():
                 i = int(p)
                 if 1 <= i <= len(options):
-                    selected.append(options[i - 1])
+                    selected_name = options[i - 1]
+                    if selected_name in selected:
+                        print(f"❌ Duplicate service: {selected_name}")
+                        all_valid = False
+                        break
+                    selected.append(selected_name)
                 else:
-                    all_valid = False
                     print(f"❌ Invalid number: {p}")
+                    all_valid = False
                     break
             elif p in options:
+                if p in selected:
+                    print(f"❌ Duplicate service: {p}")
+                    all_valid = False
+                    break
                 selected.append(p)
             else:
-                all_valid = False
                 print(f"❌ Invalid name: {p}")
+                all_valid = False
                 break
 
         if all_valid and selected:
             return selected
 
-        print("🔁 Please enter only valid names or numbers from the list.\n")
+        print("🔁 Please enter only valid, non-repeated names or numbers from the list.\n")
+
 
 
 
