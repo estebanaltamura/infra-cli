@@ -204,6 +204,15 @@ def run():
 
     send_payload(payload, terraform_endpoint)
 
+    print("\n✅ Environment created and running.")
+    print("🔒 Press Ctrl+C to exit and shut down the environment.")
+
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("\n🛑 Environment stopped.")
+
 
 if __name__ == "__main__":
     run()
