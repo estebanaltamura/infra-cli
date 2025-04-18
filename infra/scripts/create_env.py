@@ -151,9 +151,16 @@ def run():
     
     # 3. Elegir rama
     branches = get_repo_branches(terraform_base)
-    selected_branch = choose_from_list(branches, title="Select a branch to deploy")
+    selected_branch = choose_from_list(branches, title="Select a front branch to deploy")
 
-    # 4. Confirmar antes de enviar
+     # 4. Iniciar ngrok
+    try:
+        ngrok_endpoint = get_ngrok_endpoint()
+    except RuntimeError as e:
+        print(e)
+        sys.exit(1)
+
+    # 5. Confirmar antes de enviar
     print("\n📋 Verify your setup:")
     print(f"👤 Developer:       {developer}")
     print(f"🧩 Services:        {', '.join(local_services)}")
@@ -168,15 +175,7 @@ def run():
             print("🚫 Operation cancelled by the user.")
             sys.exit(0)
         else:
-            print("❌ Please respond with 'y' or 'n'.")
-
-
-    # 5. Iniciar ngrok
-    try:
-        ngrok_endpoint = get_ngrok_endpoint()
-    except RuntimeError as e:
-        print(e)
-        sys.exit(1)
+            print("❌ Please respond with 'y' or 'n'.")   
 
 
     # 6. Construir y enviar

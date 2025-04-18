@@ -195,16 +195,13 @@ def get_ngrok_endpoint():
     try:
         res = requests.get(NGROK_API_URL)
         res.raise_for_status()
-        data = res.json()
-        print("Ngrok API response:")
-        print(data)
+        data = res.json()       
         tunnels = data.get("tunnels", [])
         if not tunnels:
             port = int(os.getenv("NGROK_PORT", NGROK_DEFAULT_PORT))
             print(f"No active tunnels found. Make sure a service is listening on port {port}")
             raise ValueError("No active ngrok tunnels.")
         url = tunnels[0]["public_url"]
-        print(f"Ngrok public URL: {url}")
         return url.replace("https://", "").replace("http://", "")
     except Exception as e:
         raise RuntimeError(f"Error fetching ngrok endpoint: {e}")
