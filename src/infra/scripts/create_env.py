@@ -167,7 +167,7 @@ def run(
         sys.exit(1)
 
     # 2. Obtener opciones válidas
-    print("🧠 Requesting availables services and availables branches")
+    print("🌐 Requesting availables services and availables branches")
     available_services = get_available_services(terraform_base)
     available_branches = get_repo_branches(terraform_base)
 
@@ -194,6 +194,7 @@ def run(
 
     # 4. Iniciar ngrok
     try:
+        print("🚀 Trying launch nrok")
         ngrok_endpoint = get_ngrok_endpoint()
     except RuntimeError as e:
         print(e)
