@@ -1,23 +1,18 @@
 import typer
 from infra.scripts.create_env import run as create_env_run
-# Placeholder para destroy
-from infra.scripts.destroy_env import run as destroy_env_run  # (lo vas a crear ahora)
 
-app = typer.Typer(help="CLI to manage ephemeral environments")
+app = typer.Typer()
 
-@app.command("create")
-def create():
+@app.command("create-env")
+def create_env(
+    services: str = typer.Option(None, "--services", "-s", help="Comma-separated list of local services"),
+    branch: str = typer.Option(None, "--branch", "-b", help="Git branch to deploy")
+):
     """
-    Creates an ephemeral development environment.
+    Crea un entorno efímero de desarrollo.
     """
-    create_env_run()
-
-@app.command("destroy")
-def destroy():
-    """
-    Destroys an ephemeral development environment.
-    """
-    destroy_env_run()
+    create_env_run(cli_services=services, cli_branch=branch)
 
 if __name__ == "__main__":
     app()
+

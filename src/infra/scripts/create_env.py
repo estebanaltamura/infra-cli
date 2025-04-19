@@ -146,7 +146,10 @@ def get_available_services(terraform_endpoint_base):
         return []
 
 
-def run():
+def run(
+    cli_services: str = None,
+    cli_branch: str = None
+):
     # 1. Cargar entorno
     env_file = find_dotenv(usecwd=True)
     load_dotenv(env_file, override=False)
@@ -155,32 +158,48 @@ def run():
     terraform_endpoint = os.getenv("TERRAFORM_ENDPOINT")
     terraform_base = terraform_endpoint.rsplit("/", 1)[0]   
 
-
     if not terraform_endpoint:
-        print("❌ TERRAFORM_ENDPOINT no definido")
+        print("❌ TERRAFORM_ENDPOINT is not defined in env file")
         sys.exit(1)
 
     if not developer:
-        print("❌ DEVELOPER no definido")
+        print("❌ DEVELOPER is not defined in env file")
         sys.exit(1)
 
+    # 2. Obtener opciones válidas
+    print("🧠 Requesting availables services and availables branches")
+    available_services = get_available_services(terraform_base)
+    available_branches = get_repo_branches(terraform_base)
 
-    # 2. Elegir servicios a correr localmente    
-    services = get_available_services(terraform_base)
-    local_services = choose_multiple_from_list(services, title="Select local services")
-    
-    # 3. Elegir rama
-    branches = get_repo_branches(terraform_base)
-    selected_branch = choose_from_list(branches, title="Select a front branch to deploy")
+    # 3. Validar argumentos si fueron pasados
+    if cli_services or cli_branch:
+        if not (cli_services and cli_branch):
+            print("❌ If you provide one of --services or --branch, you must provide both.")
+            sys.exit(1)
 
-     # 4. Iniciar ngrok
+        selected_branch = cli_branch.strip()
+        if selected_branch not in available_branches:
+            print(f"❌ Invalid branch: '{selected_branch}' not in available list.")
+            sys.exit(1)
+
+        local_services = [s.strip() for s in cli_services.split(",") if s.strip()]
+        invalid_services = [s for s in local_services if s not in available_services]
+        if invalid_services:
+            print(f"❌ Invalid services: {', '.join(invalid_services)}")
+            sys.exit(1)
+    else:
+        # Interactivo si no se pasaron argumentos
+        local_services = choose_multiple_from_list(available_services, title="Select local services")
+        selected_branch = choose_from_list(available_branches, title="Select a frontend branch to deploy")
+
+    # 4. Iniciar ngrok
     try:
         ngrok_endpoint = get_ngrok_endpoint()
     except RuntimeError as e:
         print(e)
         sys.exit(1)
 
-    # 5. Confirmar antes de enviar
+    # 5. Confirmar
     print("\n📋 Verify your setup:")
     print(f"👤 Developer:       {developer}")
     print(f"🧩 Services:        {', '.join(local_services)}")
@@ -188,17 +207,16 @@ def run():
     print(f"🌐 Ngrok endpoint:  {ngrok_endpoint}")
 
     while True:
-        confirm = input("\n✅ Do you want continue? (y/n): ").strip().lower()
+        confirm = input("\n✅ Do you want to continue? (y/n): ").strip().lower()
         if confirm == "y":
             break
         elif confirm == "n":
             print("🚫 Operation cancelled by the user.")
             sys.exit(0)
         else:
-            print("❌ Please respond with 'y' or 'n'.")   
+            print("❌ Please respond with 'y' or 'n'.")
 
-
-    # 6. Construir y enviar
+    # 6. Enviar
     payload = build_payload(developer, local_services, ngrok_endpoint, selected_branch)
 
     print("\n📤 Payload a enviar:")
@@ -208,7 +226,6 @@ def run():
 
     print("\n✅ Environment created and running.")
     print("🔒 Press Ctrl+C to exit and shut down the environment.")
-
     try:
         while True:
             time.sleep(1)
@@ -217,4 +234,10 @@ def run():
 
 
 if __name__ == "__main__":
-    run()
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--services", type=str, help="Comma-separated services")
+    parser.add_argument("--branch", type=str, help="Branch to deploy")
+    args = parser.parse_args()
+
+    run(cli_services=args.services, cli_branch=args.branch)
