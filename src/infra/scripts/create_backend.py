@@ -1,17 +1,3 @@
-#!/usr/bin/env python3
-"""
-Script: create_env.py
----------------------
-Creates an ephemeral environment by calling the Terraform service.
-This script:
-  - Loads environment variables using python-dotenv.
-  - Gets the list of branches from the Terraform service.
-  - Allows the user to choose a branch via console.
-  - Prompts the user to choose which services to run locally.
-  - Launches ngrok and gets the public endpoint.
-  - Builds and sends a JSON payload to the Terraform endpoint.
-"""
-
 import os
 import sys
 import json
@@ -19,20 +5,7 @@ import requests
 from pathlib import Path
 from dotenv import load_dotenv, find_dotenv
 import time
-
-
 from infra.utils.ngrok_util import get_ngrok_endpoint
-
-
-def get_repo_branches(terraform_endpoint_base):
-    try:
-        response = requests.get(f"{terraform_endpoint_base}/repos/branches")
-        response.raise_for_status()
-        data = response.json()
-        return data.get("branches", [])
-    except Exception as e:
-        print(f"❌ Error fetching branches: {e}")
-        return []
 
 
 def choose_from_list(options, title="Choose one option"):
@@ -55,7 +28,7 @@ def choose_from_list(options, title="Choose one option"):
         print("❌ Invalid option. Try again.")
 
 
-def choose_multiple_from_list(options, title="Select one or more services"):
+def choose_multiple_services_from_list(options, title="Select one or more services"):
     if not options:
         print("⚠️ No services defined.")
         sys.exit(1)
@@ -112,12 +85,12 @@ def choose_multiple_from_list(options, title="Select one or more services"):
 
 
 
-def build_payload(developer, local_services, ngrok_endpoint, selected_branch):
+def build_payload(environment, services_to_deploy, ngrok_endpoint, is_ephemeral):
     return {
-        "developer": developer,
-        "local_services": local_services,
-        "ngrok_endpoint": ngrok_endpoint,
-        "branch": selected_branch,
+        "environment": environment,
+        "services_to_deploy": services_to_deploy,
+        "local_ip": ngrok_endpoint,
+        "is_ephemeral": is_ephemeral
     }
 
 
@@ -147,86 +120,90 @@ def get_available_services(terraform_endpoint_base):
 
 
 def run(
+    cli_environment: str = None,
     cli_services: str = None,
-    cli_branch: str = None
+    cli_is_ephemeral: bool = False,
 ):
-    # 1. Cargar entorno
+    # 1. Load .env file
     env_file = find_dotenv(usecwd=True)
     load_dotenv(env_file, override=False)
 
-    developer = os.getenv("DEVELOPER")
     terraform_endpoint = os.getenv("TERRAFORM_ENDPOINT")
-    terraform_base = terraform_endpoint.rsplit("/", 1)[0]   
-
     if not terraform_endpoint:
-        print("❌ TERRAFORM_ENDPOINT is not defined in env file")
+        print("❌ TERRAFORM_ENDPOINT is not defined in the .env file.")
         sys.exit(1)
 
-    if not developer:
-        print("❌ DEVELOPER is not defined in env file")
-        sys.exit(1)
+    terraform_base = terraform_endpoint.rsplit("/", 1)[0]
 
-    # 2. Obtener opciones válidas
-    print("🌐 Requesting availables services and availables branches")
+    print("🌐 Fetching available services...")
     available_services = get_available_services(terraform_base)
-    available_branches = get_repo_branches(terraform_base)
 
-    # 3. Validar argumentos si fueron pasados
-    if cli_services or cli_branch:
-        if not (cli_services and cli_branch):
-            print("❌ If you provide one of --services or --branch, you must provide both.")
-            sys.exit(1)
+    # 2. Decide mode: automatic or manual
+    if cli_environment and cli_services and cli_is_ephemeral is not None:
+        # ✅ Automatic mode
+        environment = cli_environment
+        services_to_deploy = [s.strip() for s in cli_services.split(",") if s.strip()]
+        invalid_services = [s for s in services_to_deploy if s not in available_services]
 
-        selected_branch = cli_branch.strip()
-        if selected_branch not in available_branches:
-            print(f"❌ Invalid branch: '{selected_branch}' not in available list.")
-            sys.exit(1)
-
-        local_services = [s.strip() for s in cli_services.split(",") if s.strip()]
-        invalid_services = [s for s in local_services if s not in available_services]
         if invalid_services:
             print(f"❌ Invalid services: {', '.join(invalid_services)}")
             sys.exit(1)
-    else:
-        # Interactivo si no se pasaron argumentos
-        local_services = choose_multiple_from_list(available_services, title="Select local services")
-        selected_branch = choose_from_list(available_branches, title="Select a frontend branch to deploy")
 
-    # 4. Iniciar ngrok
+        is_ephemeral = cli_is_ephemeral
+    else:
+        # 🛠️ Manual mode
+        print("📝 Enter environment name:")
+        environment = input("Environment: ").strip()
+
+        services_to_deploy = choose_multiple_services_from_list(available_services, title="Select services to deploy")
+
+        while True:
+            ephemeral_input = input("Is this environment ephemeral? (y/n): ").strip().lower()
+            if ephemeral_input == "y":
+                is_ephemeral = True
+                break
+            elif ephemeral_input == "n":
+                is_ephemeral = False
+                break
+            else:
+                print("❌ Please enter 'y' or 'n'.")
+
+    # 3. Start ngrok
     try:
-        print("🚀 Trying launch nrok")
+        print("🚀 Launching ngrok...")
         ngrok_endpoint = get_ngrok_endpoint()
     except RuntimeError as e:
         print(e)
         sys.exit(1)
 
-    # 5. Confirmar
-    print("\n📋 Verify your setup:")
-    print(f"👤 Developer:       {developer}")
-    print(f"🧩 Services:        {', '.join(local_services)}")
-    print(f"🌿 Branch:          {selected_branch}")
-    print(f"🌐 Ngrok endpoint:  {ngrok_endpoint}")
+    # 4. Confirm configuration
+    print("\n📋 Review your configuration:")
+    print(f"👤 Environment:         {environment}")
+    print(f"🧩 Services to deploy:  {', '.join(services_to_deploy)}")
+    print(f"🌐 Local ip:            {ngrok_endpoint}")
+    print(f"🧪 Ephemeral:           {'Yes' if is_ephemeral else 'No'}")
 
     while True:
-        confirm = input("\n✅ Do you want to continue? (y/n): ").strip().lower()
+        confirm = input("\n✅ Continue? (y/n): ").strip().lower()
         if confirm == "y":
             break
         elif confirm == "n":
-            print("🚫 Operation cancelled by the user.")
+            print("🚫 Operation cancelled by user.")
             sys.exit(0)
         else:
-            print("❌ Please respond with 'y' or 'n'.")
+            print("❌ Please enter 'y' or 'n'.")
 
-    # 6. Enviar
-    payload = build_payload(developer, local_services, ngrok_endpoint, selected_branch)
+    # 5. Build and send payload
+    payload = build_payload(environment, services_to_deploy, ngrok_endpoint, is_ephemeral)
 
-    print("\n📤 Payload a enviar:")
+    print("\n📤 Sending payload:")
     print(json.dumps(payload, indent=2))
 
     send_payload(payload, terraform_endpoint)
 
     print("\n✅ Environment created and running.")
     print("🔒 Press Ctrl+C to exit and shut down the environment.")
+
     try:
         while True:
             time.sleep(1)
@@ -236,9 +213,15 @@ def run(
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--services", type=str, help="Comma-separated services")
-    parser.add_argument("--branch", type=str, help="Branch to deploy")
+
+    parser = argparse.ArgumentParser(description="Create ephemeral environment")
+    parser.add_argument("--services", type=str, help="Comma-separated list of services")
+    parser.add_argument("--is-ephemeral", action="store_true", help="Flag to mark environment as ephemeral")
+
     args = parser.parse_args()
 
-    run(cli_services=args.services, cli_branch=args.branch)
+    run(
+        cli_environment=args.branch,
+        cli_services=args.services,
+        cli_is_ephemeral=args.is_ephemeral
+    )

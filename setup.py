@@ -14,8 +14,8 @@ setup(
         "python-dotenv",
     ],
     entry_points={
-        "console_scripts": [
-            "infra=infra.scripts.cli:app",  # este es tu comando principal
+        'console_scripts': [
+            'infra=infra.scripts.cli:app',
         ],
     },
     classifiers=[
