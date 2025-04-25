@@ -5,7 +5,6 @@ import requests
 from pathlib import Path
 from dotenv import load_dotenv, find_dotenv
 import time
-from infra.utils.ngrok_util import get_ngrok_endpoint
 
 
 def choose_from_list(options, title="Choose one option"):
@@ -85,21 +84,16 @@ def choose_multiple_services_from_list(options, title="Select one or more servic
 
 
 
-def build_payload(environment, services_to_deploy, ngrok_endpoint, is_ephemeral):
+def build_payload(environment, services_to_deploy):
     return {
         "environment": environment,
         "services_to_deploy": services_to_deploy,
-        "local_ip": ngrok_endpoint,
-        "is_ephemeral": is_ephemeral
     }
 
 
 def send_payload(payload, terraform_endpoint):
-    api_key = os.getenv("TERRAFORM_API_KEY")
     headers = {
-        "Content-Type": "application/json",
-        "x-api-key": api_key
-    }
+        "Content-Type": "application/json"}
     try:
         response = requests.post(terraform_endpoint, headers=headers, data=json.dumps(payload))
         response.raise_for_status()
@@ -128,15 +122,17 @@ def run(
     env_file = find_dotenv(usecwd=True)
     load_dotenv(env_file, override=False)
 
-    terraform_endpoint = os.getenv("TERRAFORM_ENDPOINT")
-    if not terraform_endpoint:
-        print("❌ TERRAFORM_ENDPOINT is not defined in the .env file.")
+    terraform_endpoint_base = os.getenv("TERRAFORM_ENDPOINT_BASE")
+    terraform_create_ephemeral_endpoint = os.getenv("TERRAFORM_CREATE_EPHIMERAL_ENDPOINT")
+    terraform_create_no_ephemeral_endpoint = os.getenv("TERRAFORM_CREATE_NO_EPHIMERAL_ENDPOINT")
+
+    if not terraform_create_ephemeral_endpoint or not terraform_create_no_ephemeral_endpoint or not terraform_endpoint_base:
+        print("❌ TERRAFORM_CREATE_EPHIMERAL_ENDPOINT or TERRAFORM_CREATE_NO_EPHIMERAL_ENDPOINT or TERRAFORM_ENDPOINT_BASE is not defined in the .env file.")
         sys.exit(1)
 
-    terraform_base = terraform_endpoint.rsplit("/", 1)[0]
 
     print("🌐 Fetching available services...")
-    available_services = get_available_services(terraform_base)
+    available_services = get_available_services(terraform_endpoint_base)
 
     # 2. Decide mode: automatic or manual
     if cli_environment and cli_services and cli_is_ephemeral is not None:
@@ -168,19 +164,10 @@ def run(
             else:
                 print("❌ Please enter 'y' or 'n'.")
 
-    # 3. Start ngrok
-    try:
-        print("🚀 Launching ngrok...")
-        ngrok_endpoint = get_ngrok_endpoint()
-    except RuntimeError as e:
-        print(e)
-        sys.exit(1)
-
-    # 4. Confirm configuration
+    # 3. Confirm configuration
     print("\n📋 Review your configuration:")
     print(f"👤 Environment:         {environment}")
     print(f"🧩 Services to deploy:  {', '.join(services_to_deploy)}")
-    print(f"🌐 Local ip:            {ngrok_endpoint}")
     print(f"🧪 Ephemeral:           {'Yes' if is_ephemeral else 'No'}")
 
     while True:
@@ -193,13 +180,16 @@ def run(
         else:
             print("❌ Please enter 'y' or 'n'.")
 
-    # 5. Build and send payload
-    payload = build_payload(environment, services_to_deploy, ngrok_endpoint, is_ephemeral)
+    # 4. Build and send payload
+    payload = build_payload(environment, services_to_deploy)
 
     print("\n📤 Sending payload:")
     print(json.dumps(payload, indent=2))
-
-    send_payload(payload, terraform_endpoint)
+    
+    if is_ephemeral:
+        send_payload(payload, terraform_create_ephemeral_endpoint)
+    else:
+        send_payload(payload, terraform_create_no_ephemeral_endpoint)
 
     print("\n✅ Environment created and running.")
     print("🔒 Press Ctrl+C to exit and shut down the environment.")
@@ -214,7 +204,7 @@ def run(
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Create ephemeral environment")
+    parser = argparse.ArgumentParser(description="Create backend environment")
     parser.add_argument("--services", type=str, help="Comma-separated list of services")
     parser.add_argument("--is-ephemeral", action="store_true", help="Flag to mark environment as ephemeral")
 
