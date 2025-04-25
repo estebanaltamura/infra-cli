@@ -112,6 +112,15 @@ def get_available_services(terraform_endpoint_base):
         print(f"❌ Error fetching services: {e}")
         return []
 
+def get_available_stable_environments(terraform_endpoint_base):
+    try:
+        res = requests.get(f"{terraform_endpoint_base}/available-stable-environments")
+        res.raise_for_status()
+        return res.json().get("available_stable_environments", [])
+    except Exception as e:
+        print(f"❌ Error fetching stable environments: {e}")
+        return []
+
 
 def run(
     cli_environment: str = None,
@@ -126,92 +135,86 @@ def run(
     terraform_create_ephemeral_endpoint = os.getenv("TERRAFORM_CREATE_EPHIMERAL_ENDPOINT")
     terraform_create_no_ephemeral_endpoint = os.getenv("TERRAFORM_CREATE_NO_EPHIMERAL_ENDPOINT")
 
-    if not terraform_create_ephemeral_endpoint or not terraform_create_no_ephemeral_endpoint or not terraform_endpoint_base:
-        print("❌ TERRAFORM_CREATE_EPHIMERAL_ENDPOINT or TERRAFORM_CREATE_NO_EPHIMERAL_ENDPOINT or TERRAFORM_ENDPOINT_BASE is not defined in the .env file.")
+    # Validar endpoints
+    if not terraform_endpoint_base or not terraform_create_ephemeral_endpoint or not terraform_create_no_ephemeral_endpoint:
+        print("❌ Missing required environment variables: TERRAFORM_ENDPOINT_BASE, TERRAFORM_CREATE_EPHIMERAL_ENDPOINT, or TERRAFORM_CREATE_NO_EPHIMERAL_ENDPOINT.")
         sys.exit(1)
 
-
-    print("🌐 Fetching available services...")
+    # 2. Obtener servicios y entornos estables    
+    print("🌐 Requesting available services...")
     available_services = get_available_services(terraform_endpoint_base)
 
-    # 2. Decide mode: automatic or manual
-    if cli_environment and cli_services and cli_is_ephemeral is not None:
+    print("🌐 Requesting available stable environments...")
+    available_stable_environments = get_available_stable_environments(terraform_endpoint_base)  
+
+    # 3. Decide mode: automatic or manual
+    if cli_environment is not None and cli_services is not None and cli_is_ephemeral is not None:
         # ✅ Automatic mode
         environment = cli_environment
-        services_to_deploy = [s.strip() for s in cli_services.split(",") if s.strip()]
-        invalid_services = [s for s in services_to_deploy if s not in available_services]
-
-        if invalid_services:
-            print(f"❌ Invalid services: {', '.join(invalid_services)}")
-            sys.exit(1)
-
-        is_ephemeral = cli_is_ephemeral
+        is_ephemeral = cli_is_ephemeral        
+        services_to_deploy = [s.strip() for s in cli_services.split(",") if s.strip()]        
+    
     else:
         # 🛠️ Manual mode
-        print("📝 Enter environment name:")
-        environment = input("Environment: ").strip()
-
-        services_to_deploy = choose_multiple_services_from_list(available_services, title="Select services to deploy")
-
         while True:
             ephemeral_input = input("Is this environment ephemeral? (y/n): ").strip().lower()
-            if ephemeral_input == "y":
-                is_ephemeral = True
+            if ephemeral_input in {"y", "n"}:
+                is_ephemeral = ephemeral_input == "y"
                 break
-            elif ephemeral_input == "n":
-                is_ephemeral = False
-                break
-            else:
-                print("❌ Please enter 'y' or 'n'.")
+            print("❌ Please enter 'y' or 'n'.")
+        
+        print("📝 Enter environment name:")
 
-    # 3. Confirm configuration
+        environment = input("Environment: ").strip()
+
+        services_to_deploy = choose_multiple_services_from_list(
+            available_services,
+            title="Select services to deploy"
+        )           
+
+    # 4. Chequeo de entornos estables y servicios
+    invalid_services = [s for s in services_to_deploy if s not in available_services]
+    if invalid_services:
+        print(f"❌ Invalid services: {', '.join(invalid_services)}")
+        sys.exit(1)
+    else:
+        if(len(services_to_deploy) == 1):
+            print("✅ The provided service is a valid service")
+        else:
+            print("✅ The provided services are valid services")
+
+    if not is_ephemeral:
+        if environment not in available_stable_environments:
+            print(f"❌ Environment '{environment}' is not in this list of stable environments: {', '.join(available_stable_environments)}")
+            sys.exit(1)
+        else:
+            print("✅ The provided environment is a valid stable environment")
+
+    # 5. Confirm configuration
     print("\n📋 Review your configuration:")
-    print(f"👤 Environment:         {environment}")
-    print(f"🧩 Services to deploy:  {', '.join(services_to_deploy)}")
-    print(f"🧪 Ephemeral:           {'Yes' if is_ephemeral else 'No'}")
+    print(f"🧪  Ephemeral:           {'Yes' if is_ephemeral else 'No'}")
+    print(f"🌍  Environment:         {environment}")
+    print(f"🧩  Services to deploy:  {', '.join(services_to_deploy)}")
 
     while True:
         confirm = input("\n✅ Continue? (y/n): ").strip().lower()
-        if confirm == "y":
+        if confirm in {"y", "n"}:
+            if confirm == "n":
+                print("🚫 Operation cancelled by user.")
+                sys.exit(0)
             break
-        elif confirm == "n":
-            print("🚫 Operation cancelled by user.")
-            sys.exit(0)
-        else:
-            print("❌ Please enter 'y' or 'n'.")
+        print("❌ Please enter 'y' or 'n'.")
 
-    # 4. Build and send payload
+    # 6. Build and send payload
     payload = build_payload(environment, services_to_deploy)
 
     print("\n📤 Sending payload:")
     print(json.dumps(payload, indent=2))
-    
-    if is_ephemeral:
-        send_payload(payload, terraform_create_ephemeral_endpoint)
-    else:
-        send_payload(payload, terraform_create_no_ephemeral_endpoint)
+
+    endpoint = terraform_create_ephemeral_endpoint if is_ephemeral else terraform_create_no_ephemeral_endpoint
+    send_payload(payload, endpoint)
 
     print("\n✅ Environment created and running.")
     print("🔒 Press Ctrl+C to exit and shut down the environment.")
 
-    try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        print("\n🛑 Environment stopped.")
-
-
-if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser(description="Create backend environment")
-    parser.add_argument("--services", type=str, help="Comma-separated list of services")
-    parser.add_argument("--is-ephemeral", action="store_true", help="Flag to mark environment as ephemeral")
-
-    args = parser.parse_args()
-
-    run(
-        cli_environment=args.branch,
-        cli_services=args.services,
-        cli_is_ephemeral=args.is_ephemeral
-    )
+    

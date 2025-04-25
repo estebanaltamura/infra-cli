@@ -6,9 +6,9 @@ app = typer.Typer(help="CLI to manage ephemeral dev environments.")
 
 @app.command("create-backend")
 def create_backend(
-    environment: str = typer.Option(..., "--environment", "-e", help="Define environment"),
-    services: str = typer.Option(None, "--services", "-s", help="Comma-separated list of local services"),
     is_ephemeral: bool = typer.Option(False, "--is-ephemeral", help="Whether the environment is ephemeral"),
+    environment: str = typer.Option(None, "--environment", "-e", help="Define environment"),
+    services: str = typer.Option(None, "--services", "-s", help="Comma-separated list of local services"),
 ):
     """
     Create an ephemeral environment.
